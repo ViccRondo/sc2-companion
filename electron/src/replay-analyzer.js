@@ -1,7 +1,7 @@
 /**
- * SC2 Companion - 真实录像分析器
+ * SC2 Companion - 录像分析器
  * 
- * 调用 Python sc2reader 解析 SC2 replay 文件
+ * 优先使用打包的 exe，备用 python
  */
 
 const { spawn, execSync } = require('child_process');
@@ -11,9 +11,8 @@ const { Buffer } = require('buffer');
 
 // 配置
 const CONFIG = {
-  analysisInterval: 60,  // 每60秒分析一次
+  analysisInterval: 60,
   minimaxApiKey: process.env.MINIMAX_API_KEY || '',
-  sc2Path: process.env.SC2_PATH || ''
 };
 
 // 进度回调
@@ -36,6 +35,33 @@ function sendToUI(data) {
 }
 
 /**
+ * 获取 exe 路径
+ */
+function getAnalyzerPath() {
+  // 优先使用打包的 exe
+  const exePaths = [
+    path.join(__dirname, '../assets/sc2_replay_analyzer'),
+    path.join(__dirname, '../assets/sc2_replay_analyzer.exe'),
+    // 开发模式下的路径
+    path.join(__dirname, '../../electron/assets/sc2_replay_analyzer'),
+  ];
+  
+  // Windows 添加 .exe 后缀
+  if (process.platform === 'win32') {
+    exePaths[0] += '.exe';
+  }
+  
+  for (const exePath of exePaths) {
+    if (fs.existsSync(exePath)) {
+      console.log('[Replay] 使用分析器:', exePath);
+      return exePath;
+    }
+  }
+  
+  return null;
+}
+
+/**
  * 分析 SC2 Replay 文件
  */
 async function analyzeReplay(replayPath) {
@@ -46,7 +72,6 @@ async function analyzeReplay(replayPath) {
     return;
   }
 
-  // 检查文件扩展名
   const ext = path.extname(replayPath).toLowerCase();
   if (ext !== '.sc2replay' && ext !== '.replay') {
     sendToUI({ type: 'error', message: '只支持 .SC2Replay 文件' });
@@ -56,28 +81,33 @@ async function analyzeReplay(replayPath) {
   sendToUI({ type: 'replay_start', status: 'loading' });
 
   try {
-    // 调用 Python 脚本分析
-    const result = await runPythonAnalyzer(replayPath);
+    // 优先用打包的 exe
+    const analyzerPath = getAnalyzerPath();
     
-    if (!result) {
-      // Python 分析失败，使用模拟数据
-      console.log('[Replay] Python 分析失败，使用模拟数据');
+    let result;
+    if (analyzerPath) {
+      result = await runExeAnalyzer(analyzerPath, replayPath);
+    } else {
+      // 备用 python
+      result = await runPythonAnalyzer(replayPath);
+    }
+    
+    if (!result || result.error) {
+      console.log('[Replay] 分析器执行失败:', result?.error);
       await simulateAnalysis(replayPath);
       return;
     }
 
-    const analysis = JSON.parse(result);
-    
-    console.log('[Replay] 分析完成:', analysis);
+    console.log('[Replay] 分析结果:', JSON.stringify(result).substring(0, 200));
     
     // 发送游戏信息
     sendToUI({
       type: 'replay_info',
-      data: analysis.info
+      data: result.info
     });
 
     // 逐帧分析
-    const keyMoments = analysis.key_moments || [];
+    const keyMoments = result.key_moments || [];
     let current = 0;
     
     for (const moment of keyMoments) {
@@ -91,8 +121,8 @@ async function analyzeReplay(replayPath) {
         label: moment.label
       });
 
-      // 生成该时间点的分析
-      const advice = generateAdviceForMoment(moment, analysis);
+      // 生成分析建议
+      const advice = generateAdviceForMoment(moment, result);
       
       sendToUI({
         type: 'frame_analysis',
@@ -102,12 +132,11 @@ async function analyzeReplay(replayPath) {
         phase: moment.phase
       });
 
-      // 避免过快
-      await sleep(300);
+      await sleep(400);
     }
 
     // 生成总结
-    const summary = generateSummary(analysis);
+    const summary = generateSummary(result);
     sendToUI({
       type: 'replay_summary',
       summary: summary
@@ -116,30 +145,28 @@ async function analyzeReplay(replayPath) {
   } catch (error) {
     console.error('[Replay] 分析失败:', error);
     sendToUI({ type: 'error', message: error.message });
-    
-    // 降级到模拟分析
     await simulateAnalysis(replayPath);
   }
 }
 
 /**
- * 运行 Python 分析脚本
+ * 运行打包的 exe 分析器
  */
-function runPythonAnalyzer(replayPath) {
-  return new Promise((resolve) => {
-    const scriptPath = path.join(__dirname, 'sc2_replay_analyzer.py');
+function runExeAnalyzer(exePath, replayPath) {
+  return new Promise((resolve, reject) => {
+    const isWindows = process.platform === 'win32';
+    const exe = isWindows ? exePath : exePath;
     
-    // 检查 Python 是否可用
-    execSync('python3 --version', { stdio: 'pipe' }, (err) => {
-      if (err) {
-        console.log('[Replay] python3 不可用');
-        resolve(null);
-      }
-    });
+    // 确保可执行
+    if (!isWindows) {
+      try {
+        fs.chmodSync(exePath, '755');
+      } catch (e) {}
+    }
 
-    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    console.log('[Replay] 执行 exe:', exe, replayPath);
     
-    const proc = spawn(pythonCmd, [scriptPath, replayPath], {
+    const proc = spawn(exe, [replayPath], {
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
@@ -155,102 +182,129 @@ function runPythonAnalyzer(replayPath) {
     });
 
     proc.on('close', (code) => {
-      if (code !== 0) {
-        console.error('[Replay] Python 错误:', stderr);
-        resolve(null);
-        return;
+      if (code !== 0 && stderr) {
+        console.error('[Replay] exe 错误:', stderr);
       }
 
-      // 提取 JSON 输出
-      const jsonMatch = stdout.match(/\{[\s\S]*"info"[\s\S]*\}/);
-      if (jsonMatch) {
-        resolve(jsonMatch[0]);
-      } else {
-        // 尝试提取完整 JSON
-        const lines = stdout.split('\n');
-        for (const line of lines) {
-          if (line.trim().startsWith('{')) {
-            try {
-              JSON.parse(line);
-              resolve(line);
-              return;
-            } catch (e) {}
-          }
-        }
-        resolve(null);
+      try {
+        const result = JSON.parse(stdout);
+        resolve(result);
+      } catch (e) {
+        console.error('[Replay] JSON 解析失败:', stdout.substring(0, 200));
+        resolve({ error: '解析失败' });
       }
     });
 
-    // 30秒超时
+    // 60秒超时
     setTimeout(() => {
       proc.kill();
-      resolve(null);
-    }, 30000);
+      resolve({ error: '超时' });
+    }, 60000);
+  });
+}
+
+/**
+ * 运行 Python 脚本（备用）
+ */
+function runPythonAnalyzer(replayPath) {
+  return new Promise((resolve) => {
+    const scriptPath = path.join(__dirname, 'sc2_replay_analyzer.py');
+    
+    if (!fs.existsSync(scriptPath)) {
+      resolve({ error: 'Python 脚本不存在' });
+      return;
+    }
+
+    const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+    
+    const proc = spawn(pythonCmd, [scriptPath, replayPath], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    let stdout = '';
+
+    proc.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.on('close', (code) => {
+      try {
+        const result = JSON.parse(stdout);
+        resolve(result);
+      } catch (e) {
+        resolve({ error: '解析失败' });
+      }
+    });
+
+    setTimeout(() => {
+      proc.kill();
+      resolve({ error: '超时' });
+    }, 60000);
   });
 }
 
 /**
  * 生成关键时刻的分析建议
  */
-function generateAdviceForMoment(moment, analysis) {
+function generateAdviceForMoment(moment, result) {
   const time = moment.time;
   const phase = moment.phase;
-  const info = analysis.info || {};
+  const info = result.info || {};
   const players = info.players || [];
+  const state = moment.state || {};
   
-  const advices = {
-    early: [
-      '前期侦查很重要，了解对手种族和开局',
-      '保持经济平衡，不要过早转型',
-      '农民数量决定了经济发展'
-    ],
-    mid: [
-      '中期是多线操作的最佳时机',
-      '注意对手可能的快攻',
-      '科技树选择要考虑对手种族'
-    ],
-    late: [
-      '后期注意攻防升级',
-      '决战位置比人数更重要',
-      '保持经济补给线'
-    ],
-    '开矿窗口': [
-      '5分钟到了！检查是否应该开矿',
-      '开矿后要补农民和新建筑',
-      '注意防守新矿
-    '],
-    '攻防窗口': [
-      '8分钟攻防窗口，注意对手科技进度',
-      '考虑是否需要升级攻防',
-      '保持部队压制
-    ']
-  };
-
-  // 根据时间选择建议
-  let tips = advices[phase] || advices.mid;
-  
-  if (time === 300) tips = advices['开矿窗口'];
-  else if (time === 480) tips = advices['攻防窗口'];
-
-  // 获取当前玩家 APM
-  const currentAPM = moment.state?.commands || {};
-  const avgAPM = Object.values(currentAPM).reduce((a, b) => a + b, 0) / Object.keys(currentAPM).length * 22.4 || 0;
-
-  // 根据 APM 添加建议
-  if (avgAPM < 100) {
-    tips.push(`当前 APM ${avgAPM.toFixed(0)}，注意操作节奏`);
-  } else if (avgAPM > 200) {
-    tips.push(`APM ${avgAPM.toFixed(0)} 很高，注意决策质量`);
+  // 根据时间点给建议
+  if (time === 60) {
+    return '1分钟了，检查开局建筑顺序是否正确';
   }
-
+  
+  if (time === 180) {
+    return '3分钟前期，注意侦查对手种族和开局';
+  }
+  
+  if (time === 300) {
+    const hasExtraBase = state.units_created?.[1] > 10;
+    return hasExtraBase 
+      ? '5分钟开矿成功，经济优势建立' 
+      : '5分钟窗口到了，考虑开矿或压制对手';
+  }
+  
+  if (time === 480) {
+    return '8分钟攻防窗口，注意对手科技进度，准备防御或进攻';
+  }
+  
+  if (time === 600) {
+    return '10分钟后期，确保攻防升级，检查部队配置';
+  }
+  
+  // APM 分析
+  const apm = state.apm || {};
+  const avgAPM = Object.values(apm).reduce((a, b) => a + b, 0) / Math.max(Object.keys(apm).length, 1);
+  
+  if (avgAPM > 250) {
+    return `APM ${avgAPM} 很高！注意决策质量而非单纯操作`;
+  } else if (avgAPM > 150) {
+    return `APM ${avgAPM} 不错，保持节奏`;
+  } else if (avgAPM > 0) {
+    return `APM ${avgAPM}，可以尝试提高操作效率`;
+  }
+  
+  // 默认建议
+  const phaseAdvice = {
+    early: ['前期保持侦查', '注意资源分配', '农民数量很重要'],
+    mid: ['中期多线操作', '注意对手动向', '保持科技进度'],
+    late: ['后期注意攻防', '决战位置选择', '经济补给要稳定']
+  };
+  
+  const tips = phaseAdvice[phase] || phaseAdvice.mid;
   return tips[Math.floor(Math.random() * tips.length)];
 }
 
 /**
  * 生成总结报告
  */
-function generateSummary(analysis) {
-  const info = analysis.info || {};
+function generateSummary(result) {
+  const info = result.info || {};
   const players = info.players || [];
   
   const summary = {
@@ -260,51 +314,54 @@ function generateSummary(analysis) {
       name: p.name,
       race: p.race,
       result: p.result,
-      apm: p.avg_apm || 0
+      apm: Math.round(p.avg_apm || 0)
     })),
     overallAdvice: []
   };
 
-  // 生成总体建议
+  // 根据结果生成建议
   if (players.length >= 2) {
     const winner = players.find(p => p.result === 'Win');
     const loser = players.find(p => p.result === 'Loss');
     
     if (winner) {
-      summary.overallAdvice.push(`${winner.name} 赢得比赛，${winner.race} 对战表现不错`);
+      summary.overallAdvice.push(`${winner.name} (${winner.race}) 获胜`);
     }
     
     // APM 对比
-    if (players[0] && players[1]) {
-      const apmDiff = Math.abs((players[0].avg_apm || 0) - (players[1].avg_apm || 0));
+    if (players[0]?.avg_apm && players[1]?.avg_apm) {
+      const apmDiff = Math.abs(players[0].avg_apm - players[1].avg_apm);
       if (apmDiff > 50) {
-        summary.overallAdvice.push(`APM 差距较大(${apmDiff.toFixed(0)})，操作可以更细腻`);
+        summary.overallAdvice.push(`APM 差距 ${apmDiff.toFixed(0)}，操作是胜负关键`);
       }
     }
   }
 
   // 通用建议
-  summary.overallAdvice.push('注意侦查，了解对手意图');
-  summary.overallAdvice.push('经济运营是基础');
-  summary.overallAdvice.push('多看录像学习高水平操作');
+  if (summary.totalDuration < 300) {
+    summary.overallAdvice.push('比赛较短，注意前期开局和侦查');
+  } else if (summary.totalDuration > 600) {
+    summary.overallAdvice.push('后期对决，注意攻防升级和决战时机');
+  }
+
+  summary.overallAdvice.push('多看高水平录像学习timing');
+  summary.overallAdvice.push('保持良好心态，享受游戏');
 
   return summary;
 }
 
 /**
- * 模拟分析（当 Python 不可用时）
+ * 模拟分析（当分析器都不可用时）
  */
 async function simulateAnalysis(replayPath) {
   console.log('[Replay] 使用模拟分析');
   
-  // 从文件名解析基本信息
   const fileName = path.basename(replayPath, '.SC2Replay');
-  const parts = fileName.split('-');
   
   sendToUI({
     type: 'replay_info',
     data: {
-      map_name: parts[0] || 'Unknown Map',
+      map_name: fileName.split('-')[0] || 'Unknown Map',
       game_length: 600,
       players: [
         { name: 'Player 1', race: 'Terran', result: 'Win', avg_apm: 150 },
@@ -313,24 +370,20 @@ async function simulateAnalysis(replayPath) {
     }
   });
 
-  // 关键时刻
   const keyMoments = [
     { time: 60, label: '1分钟', phase: 'early' },
     { time: 180, label: '3分钟', phase: 'early' },
     { time: 300, label: '5分钟', phase: 'mid' },
-    { time: 420, label: '7分钟', phase: 'mid' },
     { time: 480, label: '8分钟', phase: 'late' },
     { time: 600, label: '10分钟', phase: 'late' }
   ];
 
-  let current = 0;
-  for (const moment of keyMoments) {
-    current++;
-    const progress = current / keyMoments.length;
+  for (let i = 0; i < keyMoments.length; i++) {
+    const moment = keyMoments[i];
     
     sendToUI({
       type: 'replay_progress',
-      progress,
+      progress: (i + 1) / keyMoments.length,
       time: moment.time,
       label: moment.label
     });
@@ -352,62 +405,26 @@ async function simulateAnalysis(replayPath) {
     type: 'replay_summary',
     summary: {
       totalDuration: 600,
-      mapName: parts[0] || 'Unknown',
+      mapName: fileName.split('-')[0] || 'Unknown',
       players: [
         { name: 'Player 1', race: 'Terran', result: 'Win', apm: 150 },
         { name: 'Player 2', race: 'Zerg', result: 'Loss', apm: 130 }
       ],
       overallAdvice: [
-        '5分钟是关键节奏点，注意开矿时机',
-        '中期多线操作可以扩大优势',
-        '后期注意攻防升级和决战位置'
+        '注意开局侦查',
+        '5分钟是关键节奏点',
+        '后期注意攻防升级'
       ]
     }
   });
-}
-
-/**
- * 检查 Python 环境
- */
-function checkPython() {
-  try {
-    execSync('python3 --version', { stdio: 'pipe' });
-    return true;
-  } catch (e) {
-    try {
-      execSync('python --version', { stdio: 'pipe' });
-      return true;
-    } catch (e2) {
-      return false;
-    }
-  }
-}
-
-/**
- * 检查 sc2reader 是否安装
- */
-function checkSc2reader() {
-  try {
-    execSync('python3 -c "import sc2reader"', { stdio: 'pipe' });
-    return true;
-  } catch (e) {
-    try {
-      execSync('python -c "import sc2reader"', { stdio: 'pipe' });
-      return true;
-    } catch (e2) {
-      return false;
-    }
-  }
 }
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// 导出
 module.exports = {
   analyzeReplay,
   setProgressCallback,
-  checkPython,
-  checkSc2reader
+  getAnalyzerPath
 };

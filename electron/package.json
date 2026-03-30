@@ -1,7 +1,7 @@
 {
   "name": "sc2-companion",
   "version": "1.0.0",
-  "description": "SC2 AI Companion - Live2D桌宠 + 实时教练",
+  "description": "SC2 AI Companion - 桌宠 + 录像复盘 + 实时教练",
   "main": "src/main.js",
   "scripts": {
     "dev": "electron .",
@@ -9,7 +9,8 @@
     "build": "electron-builder",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux"
+    "build:linux": "electron-builder --linux",
+    "rebuild-analyzer": "pyinstaller --onefile --name sc2_replay_analyzer --console src/sc2_replay_analyzer.py"
   },
   "author": "ViccRondo",
   "license": "MIT",
@@ -20,24 +21,36 @@
       "output": "dist"
     },
     "files": [
-      "src/**/*"
+      "src/**/*",
+      "assets/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": ["**/*"]
+      }
+    ],
+    "asar": true,
     "win": {
       "target": [
         {
           "target": "portable",
           "arch": ["x64"]
         }
-      ]
+      ],
+      "icon": "assets/icon.ico"
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.exe"
     },
     "mac": {
-      "target": ["dmg"]
+      "target": ["dmg"],
+      "icon": "assets/icon.icns"
     },
     "linux": {
-      "target": ["AppImage"]
+      "target": ["AppImage"],
+      "icon": "assets/icon.png"
     }
   },
   "devDependencies": {
