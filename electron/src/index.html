@@ -20,7 +20,7 @@
     
     #app {
       width: 280px;
-      height: 380px;
+      height: 400px;
       background: linear-gradient(135deg, rgba(20, 20, 40, 0.95), rgba(30, 30, 60, 0.9));
       border-radius: 20px;
       border: 1px solid rgba(255, 255, 255, 0.1);
@@ -90,9 +90,46 @@
       transform: scale(1.1);
     }
     
+    /* 拖放区域 */
+    #drop-zone {
+      height: 100px;
+      margin: 15px;
+      border: 2px dashed rgba(139, 92, 246, 0.5);
+      border-radius: 15px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(139, 92, 246, 0.1);
+      transition: all 0.3s;
+      cursor: pointer;
+    }
+    
+    #drop-zone:hover,
+    #drop-zone.dragover {
+      border-color: rgba(139, 92, 246, 1);
+      background: rgba(139, 92, 246, 0.2);
+    }
+    
+    #drop-zone.analyzing {
+      border-color: rgba(236, 72, 153, 1);
+      background: rgba(236, 72, 153, 0.1);
+    }
+    
+    #drop-zone-icon {
+      font-size: 30px;
+      margin-bottom: 5px;
+    }
+    
+    #drop-zone-text {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 12px;
+      text-align: center;
+    }
+    
     /* 桌宠区域 */
     #live2d-area {
-      height: 150px;
+      height: 80px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -100,30 +137,30 @@
     }
     
     #live2d-model {
-      font-size: 80px;
+      font-size: 50px;
       animation: float 3s ease-in-out infinite;
       filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.3));
     }
     
     @keyframes float {
       0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-10px); }
+      50% { transform: translateY(-8px); }
     }
     
     #live2d-model.thinking {
-      animation: thinking 1s infinite;
+      animation: thinking 0.5s infinite;
     }
     
     @keyframes thinking {
       0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.05); }
+      50% { transform: scale(1.1); }
     }
     
     #speaking-indicator {
       position: absolute;
-      bottom: 10px;
+      bottom: 5px;
       right: 10px;
-      font-size: 12px;
+      font-size: 10px;
       color: rgba(255, 255, 255, 0.6);
       display: none;
     }
@@ -132,22 +169,59 @@
       display: block;
     }
     
+    /* 进度条 */
+    #progress-bar {
+      position: absolute;
+      bottom: 55px;
+      left: 15px;
+      right: 15px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 2px;
+      overflow: hidden;
+      display: none;
+    }
+    
+    #progress-bar.active {
+      display: block;
+    }
+    
+    #progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #8B5CF6, #EC4899);
+      width: 0%;
+      transition: width 0.3s;
+    }
+    
+    #progress-text {
+      position: absolute;
+      bottom: 62px;
+      right: 15px;
+      font-size: 10px;
+      color: rgba(255, 255, 255, 0.5);
+      display: none;
+    }
+    
+    #progress-text.active {
+      display: block;
+    }
+    
     /* 快捷操作 */
     #actions {
       display: flex;
       justify-content: center;
-      gap: 15px;
+      gap: 10px;
       padding: 10px;
       background: rgba(0, 0, 0, 0.2);
     }
     
     .action-btn {
-      padding: 8px 16px;
+      padding: 8px 12px;
       background: linear-gradient(135deg, rgba(139, 92, 246, 0.8), rgba(236, 72, 153, 0.8));
       border: none;
       border-radius: 20px;
       color: white;
-      font-size: 12px;
+      font-size: 11px;
       cursor: pointer;
       transition: all 0.2s;
     }
@@ -157,13 +231,14 @@
       box-shadow: 0 5px 15px rgba(139, 92, 246, 0.4);
     }
     
-    .action-btn:active {
-      transform: scale(0.95);
+    .action-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
     
     /* 聊天框 */
     #chat-box {
-      height: 110px;
+      height: 100px;
       margin: 10px;
       background: rgba(0, 0, 0, 0.3);
       border-radius: 15px;
@@ -182,75 +257,27 @@
     }
     
     .message {
-      margin-bottom: 8px;
-      padding: 8px 12px;
+      margin-bottom: 6px;
+      padding: 6px 10px;
       background: rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      font-size: 12px;
+      border-radius: 8px;
+      font-size: 11px;
       color: white;
       line-height: 1.4;
       animation: slideIn 0.3s ease;
     }
     
     @keyframes slideIn {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     
-    .message.urgent {
-      background: rgba(255, 100, 100, 0.3);
-      border-left: 3px solid #f44336;
-    }
-    
-    .message.high {
-      background: rgba(255, 200, 100, 0.3);
-      border-left: 3px solid #ff9800;
-    }
-    
-    .message.medium {
-      background: rgba(100, 200, 255, 0.2);
-      border-left: 3px solid #2196F3;
-    }
-    
-    .message.low {
-      background: rgba(100, 255, 150, 0.2);
-      border-left: 3px solid #4CAF50;
-    }
-    
-    .message.tip {
-      font-style: italic;
-      opacity: 0.8;
-    }
-    
-    .typing {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      color: rgba(255, 255, 255, 0.5);
-      font-size: 12px;
-    }
-    
-    .typing span {
-      width: 6px;
-      height: 6px;
-      background: rgba(255, 255, 255, 0.5);
-      border-radius: 50%;
-      animation: typingBounce 1s infinite;
-    }
-    
-    .typing span:nth-child(2) { animation-delay: 0.2s; }
-    .typing span:nth-child(3) { animation-delay: 0.4s; }
-    
-    @keyframes typingBounce {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-5px); }
-    }
+    .message.urgent { background: rgba(255, 100, 100, 0.3); border-left: 3px solid #f44336; }
+    .message.high { background: rgba(255, 200, 100, 0.3); border-left: 3px solid #ff9800; }
+    .message.medium { background: rgba(100, 200, 255, 0.2); border-left: 3px solid #2196F3; }
+    .message.low { background: rgba(100, 255, 150, 0.2); border-left: 3px solid #4CAF50; }
+    .message.tip { font-style: italic; opacity: 0.8; }
+    .message.time { color: rgba(255, 255, 255, 0.5); font-size: 10px; }
     
     /* 底部状态 */
     #footer {
@@ -267,10 +294,6 @@
       font-size: 10px;
       color: rgba(255, 255, 255, 0.5);
     }
-    
-    #shortcut-hint {
-      opacity: 0.7;
-    }
   </style>
 </head>
 <body>
@@ -282,23 +305,39 @@
       <button id="close-btn">×</button>
     </div>
     
+    <!-- 拖放区域 -->
+    <div id="drop-zone">
+      <div id="drop-zone-icon">📁</div>
+      <div id="drop-zone-text">
+        拖放 .SC2Replay 文件<br>
+        <small>开始录像复盘</small>
+      </div>
+    </div>
+    
+    <!-- 进度条 -->
+    <div id="progress-bar">
+      <div id="progress-fill"></div>
+    </div>
+    <div id="progress-text">0%</div>
+    
     <div id="live2d-area">
       <div id="live2d-model">✨</div>
       <div id="speaking-indicator">🔊 播报中</div>
     </div>
     
     <div id="actions">
-      <button class="action-btn" onclick="captureFrame()">📸 分析</button>
-      <button class="action-btn" onclick="toggleMute()">🔊 声音</button>
+      <button class="action-btn" id="btn-capture">📸 截帧</button>
+      <button class="action-btn" id="btn-mute">🔊 声音</button>
+      <button class="action-btn" id="btn-clear">🗑️ 清空</button>
     </div>
     
     <div id="chat-box">
-      <div class="message tip">本小姐准备好了～开始打游戏吧！</div>
+      <div class="message tip">拖入录像文件，本小姐帮你复盘分析～</div>
     </div>
     
     <div id="footer">
-      <span id="shortcut-hint">Ctrl+Shift+C 截帧</span>
-      <span id="version">v1.0.0</span>
+      <span>Ctrl+Shift+C 截帧</span>
+      <span>v1.0</span>
     </div>
   </div>
   
@@ -306,62 +345,146 @@
     // 状态
     let isConnected = false;
     let isMuted = false;
-    let messages = [];
+    let isAnalyzing = false;
+    let currentProgress = 0;
     
-    // DOM 元素
+    // DOM
+    const dropZone = document.getElementById('drop-zone');
+    const dropZoneIcon = document.getElementById('drop-zone-icon');
+    const dropZoneText = document.getElementById('drop-zone-text');
     const statusEl = document.getElementById('status');
     const modelEl = document.getElementById('live2d-model');
     const chatBox = document.getElementById('chat-box');
-    const speakingIndicator = document.getElementById('speaking-indicator');
+    const progressBar = document.getElementById('progress-bar');
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
     const closeBtn = document.getElementById('close-btn');
     
     // 初始化
     async function init() {
-      // 检查连接状态
+      // 检查连接
       isConnected = await window.sc2Companion.getConnectionStatus();
       updateConnectionStatus(isConnected);
       
-      // 监听事件
-      window.sc2Companion.onConnectionStatus((status) => {
-        updateConnectionStatus(status);
-      });
+      window.sc2Companion.onConnectionStatus(updateConnectionStatus);
+      window.sc2Companion.onAdvice(onAdvice);
+      window.sc2Companion.onPlayAudio(onPlayAudio);
+      window.sc2Companion.onCaptureStarted(onCaptureStarted);
+      window.sc2Companion.onReplayProgress(onReplayProgress);
       
-      window.sc2Companion.onAdvice((advice) => {
-        addMessage(advice.message, advice.priority);
-        
-        // 更新桌宠表情
-        if (advice.priority === 'urgent') {
-          modelEl.textContent = '⚠️';
-        } else if (advice.priority === 'high') {
-          modelEl.textContent = '💡';
-        } else {
-          modelEl.textContent = '🤔';
-        }
-        
-        // 3秒后恢复
-        setTimeout(() => {
-          modelEl.textContent = '✨';
-        }, 3000);
-      });
+      // 拖放事件
+      setupDropZone();
       
-      window.sc2Companion.onPlayAudio((audioUrl) => {
-        if (!isMuted) {
-          playAudio(audioUrl);
-        }
-      });
-      
-      window.sc2Companion.onCaptureStarted(() => {
-        modelEl.classList.add('thinking');
-        addMessage('正在分析...', 'low');
-      });
+      // 按钮事件
+      document.getElementById('btn-capture').onclick = captureFrame;
+      document.getElementById('btn-mute').onclick = toggleMute;
+      document.getElementById('btn-clear').onclick = clearChat;
       
       // 关闭按钮
-      closeBtn.onclick = () => {
-        window.sc2Companion.hideWindow();
+      closeBtn.onclick = () => window.sc2Companion.hideWindow();
+      
+      // 拖动
+      setupDrag();
+      
+      // 键盘
+      document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.shiftKey && e.key === 'C') {
+          e.preventDefault();
+          captureFrame();
+        }
+      });
+    }
+    
+    // 拖放区域设置
+    function setupDropZone() {
+      dropZone.ondragover = (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
       };
       
-      // 窗口拖动
-      setupDrag();
+      dropZone.ondragleave = () => {
+        dropZone.classList.remove('dragover');
+      };
+      
+      dropZone.ondrop = (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          const file = files[0];
+          if (file.name.toLowerCase().endsWith('.sc2replay')) {
+            analyzeReplay(file.path);
+          } else {
+            addMessage('只支持 .SC2Replay 文件', 'high');
+          }
+        }
+      };
+      
+      dropZone.onclick = () => {
+        // 可以打开文件选择对话框
+        addMessage('请拖放录像文件到窗口', 'tip');
+      };
+    }
+    
+    // 分析录像
+    function analyzeReplay(filePath) {
+      if (isAnalyzing) {
+        addMessage('正在分析中，请稍候...', 'tip');
+        return;
+      }
+      
+      isAnalyzing = true;
+      dropZone.classList.add('analyzing');
+      dropZoneIcon.textContent = '🔄';
+      dropZoneText.innerHTML = '分析中...<br><small>请稍候</small>';
+      progressBar.classList.add('active');
+      progressText.classList.add('active');
+      
+      modelEl.classList.add('thinking');
+      modelEl.textContent = '📊';
+      
+      addMessage(`开始分析: ${filePath.split(/[/\\]/).pop()}`, 'medium');
+      
+      // 发送分析请求
+      window.sc2Companion.analyzeReplay(filePath);
+    }
+    
+    // 录像进度
+    function onReplayProgress(data) {
+      currentProgress = Math.round(data.progress * 100);
+      progressFill.style.width = currentProgress + '%';
+      progressText.textContent = currentProgress + '%';
+      
+      if (data.type === 'frame_analysis') {
+        const minutes = Math.floor(data.time / 60);
+        const seconds = data.time % 60;
+        addMessage(`[${minutes}:${seconds.toString().padStart(2, '0')}] ${data.advice}`, 'low');
+      } else if (data.type === 'replay_summary') {
+        finishAnalyzing();
+        addMessage('=== 复盘总结 ===', 'medium');
+        if (data.summary.overallAdvice) {
+          for (const advice of data.summary.overallAdvice) {
+            addMessage(advice, 'high');
+          }
+        }
+      }
+    }
+    
+    function finishAnalyzing() {
+      isAnalyzing = false;
+      dropZone.classList.remove('analyzing');
+      dropZoneIcon.textContent = '✅';
+      dropZoneText.innerHTML = '分析完成！<br><small>可拖入新文件</small>';
+      progressBar.classList.remove('active');
+      progressText.classList.remove('active');
+      modelEl.classList.remove('thinking');
+      modelEl.textContent = '✨';
+      
+      setTimeout(() => {
+        dropZoneIcon.textContent = '📁';
+        dropZoneText.innerHTML = '拖放 .SC2Replay 文件<br><small>开始录像复盘</small>';
+      }, 3000);
     }
     
     // 更新连接状态
@@ -371,47 +494,47 @@
       statusEl.className = status ? 'connected' : '';
     }
     
-    // 添加消息
-    function addMessage(text, priority = 'normal') {
-      const msg = document.createElement('div');
-      msg.className = `message ${priority || ''}`;
-      msg.textContent = text;
+    // 收到建议
+    function onAdvice(advice) {
+      addMessage(advice.message, advice.priority);
       
-      chatBox.appendChild(msg);
-      chatBox.scrollTop = chatBox.scrollHeight;
-      
-      // 保留最近10条
-      while (chatBox.children.length > 10) {
-        chatBox.removeChild(chatBox.firstChild);
+      if (advice.priority === 'urgent') {
+        modelEl.textContent = '⚠️';
+      } else if (advice.priority === 'high') {
+        modelEl.textContent = '💡';
       }
       
-      messages.push({ text, priority });
+      setTimeout(() => {
+        modelEl.textContent = '✨';
+      }, 3000);
     }
     
     // 播放音频
-    function playAudio(audioUrl) {
-      if (!audioUrl) return;
-      
-      speakingIndicator.classList.add('active');
+    function onPlayAudio(audioUrl) {
+      if (!isMuted && audioUrl) {
+        const audio = new Audio(audioUrl);
+        audio.play().catch(() => {});
+      }
+    }
+    
+    // 截帧开始
+    function onCaptureStarted() {
       modelEl.classList.add('thinking');
+      modelEl.textContent = '🔍';
+      addMessage('正在分析...', 'tip');
+    }
+    
+    // 添加消息
+    function addMessage(text, type = '') {
+      const msg = document.createElement('div');
+      msg.className = `message ${type}`;
+      msg.textContent = text;
+      chatBox.appendChild(msg);
+      chatBox.scrollTop = chatBox.scrollHeight;
       
-      const audio = new Audio(audioUrl);
-      
-      audio.onended = () => {
-        speakingIndicator.classList.remove('active');
-        modelEl.classList.remove('thinking');
-      };
-      
-      audio.onerror = () => {
-        speakingIndicator.classList.remove('active');
-        modelEl.classList.remove('thinking');
-      };
-      
-      audio.play().catch(e => {
-        console.error('播放失败:', e);
-        speakingIndicator.classList.remove('active');
-        modelEl.classList.remove('thinking');
-      });
+      while (chatBox.children.length > 20) {
+        chatBox.removeChild(chatBox.firstChild);
+      }
     }
     
     // 截帧
@@ -419,35 +542,25 @@
       window.sc2Companion.captureScreen();
     }
     
-    // 切换静音
+    // 静音
     function toggleMute() {
       isMuted = !isMuted;
-      showToast(isMuted ? '🔇 静音' : '🔊 声音');
+      document.getElementById('btn-mute').textContent = isMuted ? '🔇' : '🔊';
+      addMessage(isMuted ? '已静音' : '已开启声音', 'tip');
     }
     
-    // 显示提示
-    function showToast(text) {
-      const toast = document.createElement('div');
-      toast.className = 'message';
-      toast.textContent = text;
-      toast.style.position = 'fixed';
-      toast.style.top = '50%';
-      toast.style.left = '50%';
-      toast.style.transform = 'translate(-50%, -50%)';
-      toast.style.background = 'rgba(0, 0, 0, 0.9)';
-      toast.style.zIndex = '1000';
-      document.body.appendChild(toast);
-      
+    // 清空
+    function clearChat() {
+      chatBox.innerHTML = '<div class="message tip">已清空</div>';
       setTimeout(() => {
-        toast.remove();
-      }, 1500);
+        chatBox.innerHTML = '<div class="message tip">拖入录像文件，本小姐帮你复盘分析～</div>';
+      }, 1000);
     }
     
-    // 窗口拖动
+    // 拖动窗口
     function setupDrag() {
       const header = document.getElementById('header');
-      let isDragging = false;
-      let startX, startY;
+      let isDragging = false, startX, startY;
       
       header.addEventListener('mousedown', (e) => {
         isDragging = true;
@@ -457,33 +570,14 @@
       
       document.addEventListener('mousemove', (e) => {
         if (!isDragging) return;
-        
-        const dx = e.screenX - startX;
-        const dy = e.screenY - startY;
-        
-        window.sc2Companion.moveWindow(
-          window.screenX + dx,
-          window.screenY + dy
-        );
-        
+        window.sc2Companion.moveWindow(window.screenX + e.screenX - startX, window.screenY + e.screenY - startY);
         startX = e.screenX;
         startY = e.screenY;
       });
       
-      document.addEventListener('mouseup', () => {
-        isDragging = false;
-      });
+      document.addEventListener('mouseup', () => isDragging = false);
     }
     
-    // 键盘快捷键
-    document.addEventListener('keydown', (e) => {
-      if (e.ctrlKey && e.shiftKey && e.key === 'C') {
-        e.preventDefault();
-        captureFrame();
-      }
-    });
-    
-    // 启动
     document.addEventListener('DOMContentLoaded', init);
   </script>
 </body>

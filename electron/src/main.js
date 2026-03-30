@@ -22,6 +22,9 @@ let sc2Monitor = null;
 // 截图模块（智能前台窗口）
 const screenshot = require('./screenshot');
 
+// 录像分析模块
+const replayAnalyzer = require('./replay-analyzer');
+
 // 创建主窗口
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -252,6 +255,26 @@ ipcMain.handle('get-connection-status', () => isConnected);
 
 ipcMain.on('capture-screen', () => {
   captureAndAnalyze();
+});
+
+ipcMain.on('analyze-replay', (event, filePath) => {
+  // 设置进度回调
+  replayAnalyzer.setProgressCallback((data) => {
+    mainWindow?.webContents.send('replay-progress', data);
+  });
+  
+  // 设置发送函数
+  replayAnalyzer.setSendFunction((data) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        ...data,
+        type: 'replay_' + data.type
+      }));
+    }
+  });
+  
+  // 开始分析
+  replayAnalyzer.analyzeReplay(filePath, ws);
 });
 
 ipcMain.on('move-window', (event, { x, y }) => {
