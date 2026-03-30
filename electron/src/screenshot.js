@@ -1,52 +1,245 @@
 /**
- * SC2 Companion - 截图模块
+ * SC2 Companion - 智能截图模块
  * 
- * 跨平台截图实现
+ * 自动截取前台窗口，不需要手动配置窗口标题
  */
 
-const { exec, execSync } = require('child_process');
+const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 
 const CONFIG = {
   tempDir: os.tmpdir(),
-  quality: 70, // JPEG 质量
-  width: 1920,
-  height: 1080
+  width: 1280,   // 缩小分辨率节省 token
+  height: 720
 };
 
 /**
- * 跨平台截图
+ * 截取前台窗口（智能自动）
  */
-async function capture(options = {}) {
+async function captureForeground() {
   const platform = process.platform;
-  const { width, height, quality } = { ...CONFIG, ...options };
 
   try {
     switch (platform) {
       case 'win32':
-        return await captureWindows(width, height, quality);
+        return await captureForegroundWindows();
       case 'darwin':
-        return await captureMac(width, height);
+        return await captureForegroundMac();
       case 'linux':
-        return await captureLinux(width, height);
+        return await captureForegroundLinux();
       default:
         throw new Error(`不支持的平台: ${platform}`);
     }
   } catch (e) {
-    console.error('[Screenshot] 截图失败:', e.message);
+    console.error('[Screenshot] 前台窗口截图失败:', e.message);
     return null;
   }
 }
 
 /**
- * Windows 截图（使用 PowerShell）
+ * Windows：截取前台窗口
  */
-async function captureWindows(width, height, quality) {
-  const tempFile = path.join(CONFIG.tempDir, `sc2_capture_${Date.now()}.png`);
+async function captureForegroundWindows() {
+  const tempFile = path.join(CONFIG.tempDir, `sc2_fg_${Date.now()}.png`);
 
-  // 使用 PowerShell 的 System.Drawing
+  // PowerShell：获取前台窗口并截图
+  const script = `
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+    
+    # 获取前台窗口
+    $hwnd = [System.Windows.Forms.UserActivityMonitor.Win32Api]::GetForegroundWindow()
+    if ($hwnd -eq [IntPtr]::Zero) { Write-Output "NO_WINDOW"; exit }
+    
+    # 获取窗口标题
+    $title = [System.Runtime.InteropServices.Marshal]::GetWindowText($hwnd)
+    if ([string]::IsNullOrEmpty($title)) { $title = "Untitled" }
+    
+    # 获取窗口位置和大小
+    $rect = New-Object System.Windows.Forms.Rectangle
+    [System.Windows.Forms.Native]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
+    
+    $width = $rect.Right - $rect.Left
+    $height = $rect.Bottom - $rect.Top
+    
+    if ($width -le 0 -or $height -le 0) { Write-Output "INVALID_WINDOW"; exit }
+    
+    # 创建截图
+    $bmp = New-Object System.Drawing.Bitmap($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bmp)
+    $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, New-Object System.Drawing.Size($width, $height))
+    
+    # 缩放
+    $resized = New-Object System.Drawing.Bitmap(${CONFIG.width}, ${CONFIG.height})
+    $g = [System.Drawing.Graphics]::FromImage($resized)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.DrawImage($bmp, 0, 0, ${CONFIG.width}, ${CONFIG.height})
+    
+    $resized.Save('${tempFile.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png)
+    
+    # 清理
+    $graphics.Dispose()
+    $bmp.Dispose()
+    $g.Dispose()
+    $resized.Dispose()
+    
+    # 输出窗口信息
+    Write-Output "OK|$title|$width|$height"
+  `;
+
+  return new Promise((resolve, reject) => {
+    exec(`powershell -Command "${script}"`, { timeout: 10000 }, (err, stdout) => {
+      const output = stdout.trim();
+      
+      if (err || output.startsWith('NO_WINDOW') || output.startsWith('INVALID_WINDOW')) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        const parts = output.split('|');
+        const status = parts[0];
+        const windowTitle = parts[1] || 'Unknown';
+        
+        if (status !== 'OK') {
+          resolve(null);
+          return;
+        }
+
+        console.log(`[Screenshot] 截图: ${windowTitle} (${parts[2]}x${parts[3]})`);
+
+        const imageBuffer = fs.readFileSync(tempFile);
+        const base64 = imageBuffer.toString('base64');
+        
+        fs.unlinkSync(tempFile);
+
+        resolve({
+          data: base64,
+          windowTitle,
+          width: CONFIG.width,
+          height: CONFIG.height
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
+/**
+ * macOS：截取前台窗口
+ */
+async function captureForegroundMac() {
+  const tempFile = path.join(CONFIG.tempDir, `sc2_fg_${Date.now()}.png`);
+
+  return new Promise((resolve, reject) => {
+    // 使用 screencapture -Wo 截取前台窗口（带窗口阴影）
+    exec(`screencapture -Wxo ${tempFile}`, { timeout: 5000 }, (err) => {
+      if (err) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        if (!fs.existsSync(tempFile)) {
+          resolve(null);
+          return;
+        }
+
+        // 缩放
+        execSync(`sips -z ${CONFIG.height} ${CONFIG.width} ${tempFile} --out ${tempFile}`);
+
+        const imageBuffer = fs.readFileSync(tempFile);
+        const base64 = imageBuffer.toString('base64');
+        
+        fs.unlinkSync(tempFile);
+
+        resolve({
+          data: base64,
+          windowTitle: 'Active Window',
+          width: CONFIG.width,
+          height: CONFIG.height
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
+/**
+ * Linux：截取前台窗口
+ */
+async function captureForegroundLinux() {
+  const tempFile = path.join(CONFIG.tempDir, `sc2_fg_${Date.now()}.png`);
+
+  return new Promise((resolve, reject) => {
+    // 使用 scrot 配合选择或 maim
+    const cmd = `maim -i $(xdotool getactivewindow) ${tempFile} 2>/dev/null || scrot -u ${tempFile} 2>/dev/null || scrot ${tempFile}`;
+    
+    exec(cmd, { timeout: 5000 }, (err) => {
+      if (err) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        if (!fs.existsSync(tempFile)) {
+          resolve(null);
+          return;
+        }
+
+        // 缩放（使用 ImageMagick）
+        try {
+          execSync(`convert ${tempFile} -resize ${CONFIG.width}x${CONFIG.height} ${tempFile}`);
+        } catch (e) {}
+
+        const imageBuffer = fs.readFileSync(tempFile);
+        const base64 = imageBuffer.toString('base64');
+        
+        fs.unlinkSync(tempFile);
+
+        resolve({
+          data: base64,
+          windowTitle: 'Active Window',
+          width: CONFIG.width,
+          height: CONFIG.height
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
+/**
+ * 备用：截取全屏
+ */
+async function captureScreen() {
+  const platform = process.platform;
+
+  try {
+    switch (platform) {
+      case 'win32':
+        return await captureScreenWindows();
+      case 'darwin':
+        return await captureScreenMac();
+      case 'linux':
+        return await captureScreenLinux();
+      default:
+        return null;
+    }
+  } catch (e) {
+    console.error('[Screenshot] 全屏截图失败:', e.message);
+    return null;
+  }
+}
+
+async function captureScreenWindows() {
+  const tempFile = path.join(CONFIG.tempDir, `sc2_screen_${Date.now()}.png`);
+
   const script = `
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -54,164 +247,26 @@ async function captureWindows(width, height, quality) {
     $screen = [System.Windows.Forms.Screen]::PrimaryScreen
     $bmp = New-Object System.Drawing.Bitmap($screen.Bounds.Width, $screen.Bounds.Height)
     $graphics = [System.Drawing.Graphics]::FromImage($bmp)
-    $graphics.CopyFromScreen($screen.Bounds.Location, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
+    $graphics.CopyFromScreen([System.Drawing.Point]::Empty, [System.Drawing.Point]::Empty, $screen.Bounds.Size)
     
-    # 缩放到指定大小
-    $resized = New-Object System.Drawing.Bitmap(${width}, ${height})
+    $resized = New-Object System.Drawing.Bitmap(${CONFIG.width}, ${CONFIG.height})
     $g = [System.Drawing.Graphics]::FromImage($resized)
-    $g.DrawImage($bmp, 0, 0, ${width}, ${height})
+    $g.DrawImage($bmp, 0, 0, ${CONFIG.width}, ${CONFIG.height})
     
     $resized.Save('${tempFile.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png)
     
     $graphics.Dispose()
     $bmp.Dispose()
-    $resized.Dispose()
     $g.Dispose()
-  `;
-
-  return new Promise((resolve, reject) => {
-    exec(`powershell -Command "${script}"`, { timeout: 10000 }, (err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      try {
-        const imageBuffer = fs.readFileSync(tempFile);
-        const base64 = imageBuffer.toString('base64');
-        
-        // 清理临时文件
-        fs.unlinkSync(tempFile);
-
-        resolve(base64);
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-}
-
-/**
- * macOS 截图（使用 screencapture）
- */
-async function captureMac(width, height) {
-  const tempFile = path.join(CONFIG.tempDir, `sc2_capture_${Date.now()}.png`);
-
-  return new Promise((resolve, reject) => {
-    exec(`screencapture -x ${tempFile}`, { timeout: 5000 }, (err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      try {
-        // 使用 sips 缩放
-        execSync(`sips -z ${height} ${width} ${tempFile}`);
-        
-        const imageBuffer = fs.readFileSync(tempFile);
-        const base64 = imageBuffer.toString('base64');
-        
-        // 清理
-        fs.unlinkSync(tempFile);
-
-        resolve(base64);
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-}
-
-/**
- * Linux 截图（使用 scrot 或 gnome-screenshot）
- */
-async function captureLinux(width, height) {
-  const tempFile = path.join(CONFIG.tempDir, `sc2_capture_${Date.now()}.png`);
-
-  return new Promise((resolve, reject) => {
-    // 尝试 scrot
-    const cmd = `scrot ${tempFile} || gnome-screenshot -f ${tempFile}`;
+    $resized.Dispose()
     
-    exec(cmd, { timeout: 5000 }, (err) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-
-      try {
-        if (!fs.existsSync(tempFile)) {
-          throw new Error('截图文件不存在');
-        }
-
-        const imageBuffer = fs.readFileSync(tempFile);
-        const base64 = imageBuffer.toString('base64');
-        
-        // 清理
-        fs.unlinkSync(tempFile);
-
-        resolve(base64);
-      } catch (e) {
-        reject(e);
-      }
-    });
-  });
-}
-
-/**
- * 截图指定窗口（高级功能）
- */
-async function captureWindow(windowName) {
-  const platform = process.platform;
-
-  try {
-    switch (platform) {
-      case 'win32':
-        return await captureWindowWindows(windowName);
-      case 'darwin':
-        return await captureWindowMac(windowName);
-      default:
-        // 不支持，返回全屏截图
-        return await capture();
-    }
-  } catch (e) {
-    console.error('[Screenshot] 窗口截图失败:', e.message);
-    return await capture();
-  }
-}
-
-/**
- * Windows 窗口截图
- */
-async function captureWindowWindows(windowName) {
-  const tempFile = path.join(CONFIG.tempDir, `sc2_window_${Date.now()}.png`);
-
-  // 使用 PowerShell 查找窗口并截图
-  const script = `
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
-    
-    $hwnd = (Get-Process | Where-Object { $_.MainWindowTitle -like '*${windowName}*' } | Select-Object -First 1).MainWindowHandle
-    
-    if ($hwnd) {
-      $cap = [System.Drawing.Graphics]::FromHwnd($hwnd)
-      $rect = [System.Windows.Forms.Rectangle]::FromLTRB(0, 0, [int]($cap.VisibleClipBounds.Width), [int]($cap.VisibleClipBounds.Height))
-      $bmp = New-Object System.Drawing.Bitmap($rect.Width, $rect.Height)
-      $g = [System.Drawing.Graphics]::FromImage($bmp)
-      $g.CopyFromScreen($rect.Location, [System.Drawing.Point]::Empty, $rect.Size)
-      $bmp.Save('${tempFile.replace(/\\/g, '\\\\')}', [System.Drawing.Imaging.ImageFormat]::Png)
-      $g.Dispose()
-      $bmp.Dispose()
-      $cap.Dispose()
-      Write-Output 'OK'
-    } else {
-      Write-Output 'NOT_FOUND'
-    }
+    Write-Output 'OK'
   `;
 
   return new Promise((resolve, reject) => {
     exec(`powershell -Command "${script}"`, { timeout: 10000 }, (err, stdout) => {
-      if (err || stdout.trim() === 'NOT_FOUND') {
-        resolve(null); // 窗口未找到
+      if (err || !stdout.trim().startsWith('OK')) {
+        resolve(null);
         return;
       }
 
@@ -219,7 +274,13 @@ async function captureWindowWindows(windowName) {
         const imageBuffer = fs.readFileSync(tempFile);
         const base64 = imageBuffer.toString('base64');
         fs.unlinkSync(tempFile);
-        resolve(base64);
+
+        resolve({
+          data: base64,
+          windowTitle: 'Desktop',
+          width: CONFIG.width,
+          height: CONFIG.height
+        });
       } catch (e) {
         reject(e);
       }
@@ -227,15 +288,41 @@ async function captureWindowWindows(windowName) {
   });
 }
 
-/**
- * macOS 窗口截图
- */
-async function captureWindowMac(windowName) {
-  const tempFile = path.join(CONFIG.tempDir, `sc2_window_${Date.now()}.png`);
+async function captureScreenMac() {
+  const tempFile = path.join(CONFIG.tempDir, `sc2_screen_${Date.now()}.png`);
 
   return new Promise((resolve, reject) => {
-    // 使用 screencapture -W 交互式选择窗口
-    exec(`screencapture -iW ${tempFile}`, { timeout: 10000 }, (err) => {
+    exec(`screencapture -x ${tempFile}`, { timeout: 5000 }, (err) => {
+      if (err) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        execSync(`sips -z ${CONFIG.height} ${CONFIG.width} ${tempFile} --out ${tempFile}`);
+        
+        const imageBuffer = fs.readFileSync(tempFile);
+        const base64 = imageBuffer.toString('base64');
+        fs.unlinkSync(tempFile);
+
+        resolve({
+          data: base64,
+          windowTitle: 'Desktop',
+          width: CONFIG.width,
+          height: CONFIG.height
+        });
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
+}
+
+async function captureScreenLinux() {
+  const tempFile = path.join(CONFIG.tempDir, `sc2_screen_${Date.now()}.png`);
+
+  return new Promise((resolve, reject) => {
+    exec(`scrot ${tempFile} || gnome-screenshot`, { timeout: 5000 }, (err) => {
       if (err) {
         resolve(null);
         return;
@@ -246,7 +333,13 @@ async function captureWindowMac(windowName) {
           const imageBuffer = fs.readFileSync(tempFile);
           const base64 = imageBuffer.toString('base64');
           fs.unlinkSync(tempFile);
-          resolve(base64);
+
+          resolve({
+            data: base64,
+            windowTitle: 'Desktop',
+            width: CONFIG.width,
+            height: CONFIG.height
+          });
         } else {
           resolve(null);
         }
@@ -258,6 +351,6 @@ async function captureWindowMac(windowName) {
 }
 
 module.exports = {
-  capture,
-  captureWindow
+  captureForeground,
+  captureScreen
 };

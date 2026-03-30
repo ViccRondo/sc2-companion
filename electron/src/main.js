@@ -19,7 +19,7 @@ let ws = null;
 let isConnected = false;
 let sc2Monitor = null;
 
-// 截图模块
+// 截图模块（智能前台窗口）
 const screenshot = require('./screenshot');
 
 // 创建主窗口
@@ -180,28 +180,35 @@ function handleServerMessage(message) {
   }
 }
 
-// 截图并分析
+// 截图并分析（智能前台窗口）
 async function captureAndAnalyze() {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     console.log('[WS] 未连接');
     return;
   }
 
-  console.log('[Capture] 开始截图...');
+  console.log('[Capture] 截取前台窗口...');
   
   try {
-    const screenshotData = await screenshot.capture();
+    // 优先截取前台窗口（智能自动）
+    const screenshotData = await screenshot.captureForeground();
     
-    if (screenshotData) {
+    // 备用：全屏截图
+    const data = screenshotData?.data || await screenshot.captureScreen()?.data;
+    
+    if (data) {
       ws.send(JSON.stringify({
         type: 'screenshot',
-        data: screenshotData,
+        data: data,
+        windowTitle: screenshotData?.windowTitle || 'Unknown',
         timestamp: Date.now()
       }));
       console.log('[Capture] 截图已发送');
       
       // 通知 UI
       mainWindow?.webContents.send('capture-started');
+    } else {
+      console.log('[Capture] 截图失败');
     }
   } catch (e) {
     console.error('[Capture] 截图失败:', e.message);
