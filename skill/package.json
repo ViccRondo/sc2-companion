@@ -1,0 +1,14 @@
+{
+  "name": "sc2-companion-skill",
+  "version": "1.0.0",
+  "description": "SC2 AI Companion Skill for OpenClaw",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "dotenv": "^16.4.5"
+  }
+}

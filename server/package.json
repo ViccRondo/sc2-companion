@@ -1,0 +1,13 @@
+{
+  "name": "sc2-companion-server",
+  "version": "1.0.0",
+  "description": "SC2 Companion WebSocket Server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0",
+    "dotenv": "^16.4.5"
+  }
+}
