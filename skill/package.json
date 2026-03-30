@@ -4,7 +4,6 @@
   "description": "SC2 AI Companion Skill for OpenClaw",
   "main": "src/index.js",
   "scripts": {
-    "build": "tsc",
     "start": "node src/index.js"
   },
   "dependencies": {

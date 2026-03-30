@@ -17,6 +17,10 @@ async function analyzeWithVision(screenshot, gameState) {
     return null;
   }
 
+  if (!screenshot) {
+    return null;
+  }
+
   const gameMinutes = Math.floor((gameState.gameTime || 0) / 60);
   const gameSeconds = (gameState.gameTime || 0) % 60;
   
@@ -46,8 +50,8 @@ async function analyzeWithVision(screenshot, gameState) {
 
     const advice = response.choices?.[0]?.message?.content?.trim() || '';
     
-    // 过滤掉空建议
-    if (advice && !advice.includes('局势不错')) {
+    // 过滤掉空建议或"局势不错"类的消息
+    if (advice && !advice.includes('局势不错') && !advice.includes('继续当前节奏')) {
       return {
         type: 'vision',
         priority: 'medium',
@@ -67,20 +71,24 @@ async function synthesizeSpeech(text) {
     return null;
   }
 
+  if (!text) {
+    return null;
+  }
+
   try {
-    const response = await httpRequest(CONFIG.minimaxTtsUrl, {
+    // 流式请求
+    const response = await httpRequestStream(CONFIG.minimaxTtsUrl, {
       model: 'speech-02-hd',
       text,
-      stream: false,
+      stream: true,
       voice_setting: {
         voice_id: 'male-yunyang',
         speed: 1.1,
         vol: 1.0,
         pitch: 0
       }
-    }, 'tts');
+    });
 
-    // TTS 返回的是二进制音频
     if (response && response.data) {
       return `data:audio/mp3;base64,${response.data}`;
     }
@@ -92,7 +100,7 @@ async function synthesizeSpeech(text) {
 }
 
 // HTTP 请求封装
-function httpRequest(url, data, type = 'vlm') {
+function httpRequest(url, data) {
   return new Promise((resolve, reject) => {
     const urlObj = new URL(url);
     const options = {
@@ -110,16 +118,58 @@ function httpRequest(url, data, type = 'vlm') {
       res.on('data', chunk => chunks.push(chunk));
       res.on('end', () => {
         const buffer = Buffer.concat(chunks);
-        
-        // TTS 返回二进制，其他返回 JSON
-        if (type === 'tts') {
-          resolve({ data: buffer.toString('base64') });
-        } else {
-          try {
-            resolve(JSON.parse(buffer.toString()));
-          } catch (e) {
-            reject(new Error('JSON解析失败: ' + buffer.toString().substring(0, 100)));
+        try {
+          resolve(JSON.parse(buffer.toString()));
+        } catch (e) {
+          reject(new Error('JSON解析失败: ' + buffer.toString().substring(0, 200)));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(JSON.stringify(data));
+    req.end();
+  });
+}
+
+// 流式 HTTP 请求（用于 TTS）
+function httpRequestStream(url, data) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const options = {
+      hostname: urlObj.hostname,
+      path: urlObj.pathname,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${CONFIG.minimaxApiKey}`,
+        'Content-Type': 'application/json'
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        try {
+          // TTS 流式返回的是多个 JSON lines
+          const lines = buffer.toString().split('\n');
+          let audioData = '';
+          
+          for (const line of lines) {
+            if (line.trim()) {
+              try {
+                const parsed = JSON.parse(line);
+                if (parsed.data) {
+                  audioData += parsed.data;
+                }
+              } catch (e) {}
+            }
           }
+          
+          resolve({ data: audioData });
+        } catch (e) {
+          reject(e);
         }
       });
     });

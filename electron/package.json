@@ -5,10 +5,14 @@
   "main": "src/main.js",
   "scripts": {
     "dev": "electron .",
+    "start": "electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac"
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
   },
+  "author": "ViccRondo",
+  "license": "MIT",
   "build": {
     "appId": "com.vicc.sc2-companion",
     "productName": "SC2 Companion",
@@ -16,8 +20,7 @@
       "output": "dist"
     },
     "files": [
-      "src/**/*",
-      "assets/**/*"
+      "src/**/*"
     ],
     "win": {
       "target": [
@@ -25,21 +28,17 @@
           "target": "portable",
           "arch": ["x64"]
         }
-      ],
-      "icon": "assets/icon.ico"
-    },
-    "mac": {
-      "target": ["dmg"],
-      "icon": "assets/icon.icns"
+      ]
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.exe"
+    },
+    "mac": {
+      "target": ["dmg"]
+    },
+    "linux": {
+      "target": ["AppImage"]
     }
-  },
-  "dependencies": {
-    "ws": "^8.16.0",
-    "screenCapture": "^1.0.1",
-    "robotjs": "^0.6.0"
   },
   "devDependencies": {
     "electron": "^28.0.0",

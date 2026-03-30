@@ -1,0 +1,32 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+out/
+
+# 环境变量
+.env
+.env.local
+
+# 临时文件
+*.log
+*.tmp
+*.swp
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# 测试
+coverage/
+
+# SC2 相关
+*.SC2Replay

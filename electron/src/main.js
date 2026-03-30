@@ -2,10 +2,10 @@
  * SC2 Companion - Electron 主进程
  */
 
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, globalShortcut, screen } = require('electron');
 const path = require('path');
+const { exec } = require('child_process');
 const WebSocket = require('ws');
-const https = require('https');
 
 // 配置
 const CONFIG = {
@@ -17,24 +17,23 @@ let mainWindow = null;
 let tray = null;
 let ws = null;
 let isConnected = false;
+let sc2Monitor = null;
 
-// SC2 状态
-let sc2State = {
-  gameTime: 0,
-  resources: { minerals: 0, vespene: 0, foodUsed: 0, foodCap: 0 },
-  event: 'idle'
-};
+// 截图模块
+const screenshot = require('./screenshot');
 
 // 创建主窗口
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 300,
-    height: 400,
+    width: 280,
+    height: 380,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: true,
+    x: screen.getPrimaryDisplay().workArea.width - 300,
+    y: 100,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -43,8 +42,9 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  mainWindow.hide();
 
-  // 调试模式
+  // 开发模式
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
   }
@@ -52,84 +52,110 @@ function createWindow() {
 
 // 创建系统托盘
 function createTray() {
-  // 创建一个简单的图标
   const iconPath = path.join(__dirname, '../assets/icon.png');
   let trayIcon;
   
   try {
     trayIcon = nativeImage.createFromPath(iconPath);
+    if (trayIcon.isEmpty()) {
+      trayIcon = createDefaultIcon();
+    }
   } catch (e) {
-    // 如果没有图标，创建一个空白图标
-    trayIcon = nativeImage.createEmpty();
+    trayIcon = createDefaultIcon();
   }
 
   tray = new Tray(trayIcon);
+  updateTrayMenu();
 
-  const contextMenu = Menu.buildFromTemplate([
-    { label: '显示/隐藏', click: () => toggleWindow() },
-    { label: '连接状态: 未连接', enabled: false, id: 'status' },
-    { type: 'separator' },
-    { label: '退出', click: () => app.quit() }
-  ]);
+  tray.on('click', () => {
+    if (mainWindow.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+    }
+  });
 
-  tray.setToolTip('SC2 Companion');
-  tray.setContextMenu(contextMenu);
-  tray.on('click', () => toggleWindow());
+  tray.on('double-click', () => {
+    mainWindow.show();
+  });
 }
 
-// 切换窗口显示
-function toggleWindow() {
-  if (mainWindow.isVisible()) {
-    mainWindow.hide();
-  } else {
-    mainWindow.show();
+// 创建默认图标
+function createDefaultIcon() {
+  // 创建一个简单的 16x16 图标
+  const size = 16;
+  const canvas = Buffer.alloc(size * size * 4);
+  
+  // 填充紫色背景
+  for (let i = 0; i < size * size; i++) {
+    canvas[i * 4] = 138;     // R
+    canvas[i * 4 + 1] = 43; // G
+    canvas[i * 4 + 2] = 226; // B
+    canvas[i * 4 + 3] = 255; // A
   }
+  
+  return nativeImage.createFromBuffer(canvas, {
+    width: size,
+    height: size
+  });
+}
+
+// 更新托盘菜单
+function updateTrayMenu() {
+  if (!tray) return;
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: '显示/隐藏', click: () => mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show() },
+    { label: '─────────', enabled: false },
+    { label: `状态: ${isConnected ? '✓ 已连接' : '✗ 未连接'}`, enabled: false },
+    { label: '─────────', enabled: false },
+    { label: '🎮 截帧分析 (Ctrl+Shift+C)', click: () => captureAndAnalyze() },
+    { label: '📊 查看状态', click: () => showStatus() },
+    { label: '─────────', enabled: false },
+    { label: '❌ 退出', click: () => app.quit() }
+  ]);
+
+  tray.setContextMenu(contextMenu);
+  tray.setToolTip(`SC2 Companion ${isConnected ? '✓' : '✗'}`);
 }
 
 // WebSocket 连接
 function connectWebSocket() {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    return;
-  }
+  if (ws && ws.readyState === WebSocket.OPEN) return;
 
-  console.log('[WS] 连接到:', CONFIG.serverUrl);
-  
-  try {
-    ws = new WebSocket(CONFIG.serverUrl);
+  console.log('[WS] 连接:', CONFIG.serverUrl);
 
-    ws.on('open', () => {
-      console.log('[WS] 已连接');
-      isConnected = true;
-      updateTrayStatus('已连接');
-      mainWindow?.webContents.send('connection-status', true);
-    });
+  ws = new WebSocket(CONFIG.serverUrl, {
+    handshakeTimeout: 5000
+  });
 
-    ws.on('message', (data) => {
-      try {
-        const message = JSON.parse(data);
-        handleServerMessage(message);
-      } catch (e) {
-        console.error('[WS] 消息解析失败:', e.message);
-      }
-    });
+  ws.on('open', () => {
+    console.log('[WS] 已连接');
+    isConnected = true;
+    updateTrayMenu();
+    mainWindow?.webContents.send('connection-status', true);
+  });
 
-    ws.on('close', () => {
-      console.log('[WS] 连接断开');
-      isConnected = false;
-      updateTrayStatus('未连接');
-      mainWindow?.webContents.send('connection-status', false);
-      
-      // 自动重连
-      setTimeout(connectWebSocket, CONFIG.wsReconnectInterval);
-    });
+  ws.on('message', (data) => {
+    try {
+      const message = JSON.parse(data);
+      handleServerMessage(message);
+    } catch (e) {
+      console.error('[WS] 消息解析失败:', e.message);
+    }
+  });
 
-    ws.on('error', (err) => {
-      console.error('[WS] 错误:', err.message);
-    });
-  } catch (e) {
-    console.error('[WS] 连接失败:', e.message);
+  ws.on('close', () => {
+    console.log('[WS] 连接断开');
+    isConnected = false;
+    updateTrayMenu();
+    mainWindow?.webContents.send('connection-status', false);
     setTimeout(connectWebSocket, CONFIG.wsReconnectInterval);
-  }
+  });
+
+  ws.on('error', (err) => {
+    console.error('[WS] 错误:', err.message);
+  });
 }
 
 // 处理服务器消息
@@ -139,68 +165,86 @@ function handleServerMessage(message) {
     case 'alert':
     case 'timing':
     case 'vision':
+    case 'tts':
       mainWindow?.webContents.send('advice', message);
-      // 播放 TTS
+      
+      // 播放音频
       if (message.ttsUrl) {
         mainWindow?.webContents.send('play-audio', message.ttsUrl);
       }
       break;
-    case 'tts':
-      mainWindow?.webContents.send('play-audio', message.audioUrl);
+      
+    case 'connected':
+      console.log('[WS] 服务器确认连接');
       break;
   }
 }
 
-// 更新托盘状态
-function updateTrayStatus(status) {
-  if (!tray) return;
-  
-  const menu = Menu.buildFromTemplate([
-    { label: '显示/隐藏', click: () => toggleWindow() },
-    { label: `连接状态: ${status}`, enabled: false },
-    { type: 'separator' },
-    { label: '退出', click: () => app.quit() }
-  ]);
-  tray.setContextMenu(menu);
-  tray.setToolTip(`SC2 Companion - ${status}`);
-}
-
-// 捕获屏幕（模拟 SC2 API 数据）
-function captureScreen() {
-  // 这里需要调用系统的截图功能
-  // 暂时用占位符，实际需要集成 screenshot 库
-  return null;
-}
-
-// 发送游戏状态到服务器
-function sendGameState(state) {
+// 截图并分析
+async function captureAndAnalyze() {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.log('[WS] 未连接');
     return;
   }
 
-  // 合并当前状态和新状态
-  sc2State = { ...sc2State, ...state };
+  console.log('[Capture] 开始截图...');
   
-  // 发送状态
+  try {
+    const screenshotData = await screenshot.capture();
+    
+    if (screenshotData) {
+      ws.send(JSON.stringify({
+        type: 'screenshot',
+        data: screenshotData,
+        timestamp: Date.now()
+      }));
+      console.log('[Capture] 截图已发送');
+      
+      // 通知 UI
+      mainWindow?.webContents.send('capture-started');
+    }
+  } catch (e) {
+    console.error('[Capture] 截图失败:', e.message);
+  }
+}
+
+// 显示状态
+function showStatus() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    console.log('状态: 未连接');
+    return;
+  }
+  
   ws.send(JSON.stringify({
-    ...sc2State,
+    type: 'status_request',
     timestamp: Date.now()
   }));
+}
+
+// 注册全局快捷键
+function registerShortcuts() {
+  // Ctrl+Shift+C: 截帧分析
+  globalShortcut.register('CommandOrControl+Shift+C', () => {
+    captureAndAnalyze();
+  });
+
+  // Ctrl+Shift+H: 显示/隐藏窗口
+  globalShortcut.register('CommandOrControl+Shift+H', () => {
+    if (mainWindow.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+    }
+  });
+
+  console.log('[Shortcuts] 全局快捷键已注册');
 }
 
 // IPC 处理
 ipcMain.handle('get-connection-status', () => isConnected);
 
-ipcMain.on('update-state', (event, state) => {
-  sendGameState(state);
-});
-
-ipcMain.on('capture-screen', async (event) => {
-  // 截图并发送给服务器
-  const screenshot = await captureScreen();
-  if (screenshot) {
-    sendGameState({ screenshot });
-  }
+ipcMain.on('capture-screen', () => {
+  captureAndAnalyze();
 });
 
 ipcMain.on('move-window', (event, { x, y }) => {
@@ -213,11 +257,31 @@ ipcMain.on('hide-window', () => {
   mainWindow?.hide();
 });
 
-// 应用启动
+ipcMain.on('show-window', () => {
+  mainWindow?.show();
+});
+
+ipcMain.on('update-game-state', (event, state) => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      ...state,
+      timestamp: Date.now()
+    }));
+  }
+});
+
+// 应用生命周期
 app.whenReady().then(() => {
   createWindow();
   createTray();
   connectWebSocket();
+  registerShortcuts();
+
+  console.log('╔═══════════════════════════════════╗');
+  console.log('║   SC2 Companion 已启动           ║');
+  console.log('║   按 Ctrl+Shift+C 截帧分析        ║');
+  console.log('║   按 Ctrl+Shift+H 显示/隐藏       ║');
+  console.log('╚═══════════════════════════════════╝');
 });
 
 app.on('window-all-closed', () => {
@@ -225,7 +289,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  if (ws) {
-    ws.close();
-  }
+  if (ws) ws.close();
+  globalShortcut.unregisterAll();
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
 });

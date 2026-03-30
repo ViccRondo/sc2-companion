@@ -4,7 +4,8 @@
   "description": "SC2 Companion WebSocket Server",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node --watch index.js"
   },
   "dependencies": {
     "ws": "^8.16.0",
